@@ -147,6 +147,48 @@ app.post("/api/tasks/:id/assign", auth.userAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// ---------- chat with an agent ----------
+// A persistent chat thread per agent. Owner messages become subtasks (kind:"chat");
+// the agent's completion result renders as the reply. Works with the existing
+// poll/complete flow, so any worker agent supports chat with no extra protocol.
+async function getChatTask(agent) {
+  const title = `💬 Chat with ${agent.name}`;
+  const tasks = await store.listTasks();
+  const found = tasks.find((x) => x.title === title); // never start a new thread — history lives here
+  if (found) return publicTask(found);
+  const task = {
+    id: store.uid("t"), title, description: "Direct chat thread — messages are subtasks, replies are results.",
+    subtasks: [], created_by: "__system__", status: "open",
+  };
+  await store.createTask(task);
+  return publicTask({ ...task });
+}
+
+app.post("/api/chat", auth.userAuth, async (req, res) => {
+  try {
+    const { agent_id, message } = req.body || {};
+    if (!agent_id || !message?.trim()) return res.status(400).json({ ok: false, error: "agent_id and message required" });
+    const agent = await store.findAgentById(agent_id);
+    if (!agent || agent.status !== "active") return res.status(404).json({ ok: false, error: "agent not found or revoked" });
+    const task = await getChatTask(agent);
+    task.subtasks.push({
+      id: store.uid("st"), title: message.trim(), kind: "chat",
+      status: "assigned", agent_id: agent.id, result: null, updated_at: new Date().toISOString(),
+    });
+    task.status = taskStatus(task);
+    await store.saveTask(task);
+    res.json({ ok: true, task });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.get("/api/chat/:agent_id", auth.userAuth, async (req, res) => {
+  try {
+    const agent = await store.findAgentById(req.params.agent_id);
+    if (!agent) return res.status(404).json({ ok: false, error: "agent not found" });
+    res.json({ ok: true, task: await getChatTask(agent) });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
 // ---------- agent surface ----------
 app.get("/api/agent/tasks", auth.agentAuth, async (req, res) => {
   const mine = [];
