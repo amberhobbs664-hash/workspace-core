@@ -82,6 +82,19 @@ const H = (t) => ({ "Content-Type": "application/json", Authorization: `Bearer $
     r = await j(await fetch(`${BASE}/api/agent/tasks`, { headers: H(agentKey) }));
     ok("revoked agent key -> 401", r.status === 401);
 
+    // chat with an agent
+    r = await j(await fetch(`${BASE}/api/agents`, { method: "POST", headers: H(userTok), body: JSON.stringify({ name: "chatter" }) }));
+    const chatKey = r.api_key, chatAgentId = r.agent.id;
+    r = await j(await fetch(`${BASE}/api/chat`, { method: "POST", headers: H(userTok), body: JSON.stringify({ agent_id: chatAgentId, message: "hello agent" }) }));
+    ok("POST /api/chat creates chat thread", r.ok && r.task.title.includes("Chat"));
+    const chatSubId = r.task.subtasks[0].id;
+    r = await j(await fetch(`${BASE}/api/agent/tasks`, { headers: H(chatKey) }));
+    ok("agent sees chat message as subtask", r.ok && r.tasks.some((t) => t.subtask.kind === "chat"));
+    r = await j(await fetch(`${BASE}/api/agent/subtasks/${chatSubId}/complete`, { method: "POST", headers: H(chatKey), body: JSON.stringify({ result: "hey! I'm here." }) }));
+    ok("agent replies to chat", r.ok === true);
+    r = await j(await fetch(`${BASE}/api/chat/${chatAgentId}`, { headers: H(userTok) }));
+    ok("owner reads chat thread with reply", r.ok && r.task.subtasks[0].result === "hey! I'm here.");
+
     // member cannot manage agents
     r = await j(await fetch(`${BASE}/api/auth/register`, { method: "POST", headers: H(""), body: JSON.stringify({ name: "M2", email: "m2@test.lk", password: "secret123" }) }));
     const mTok = r.token;
