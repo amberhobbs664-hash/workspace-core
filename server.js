@@ -181,4 +181,6 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "workspace-core", version: "0.1.0", llm_mock: process.env.LLM_MOCK === "true", time: new Date().toISOString() });
 });
 
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
+
 app.listen(PORT, () => console.log(`workspace-core on :${PORT}  (llm_mock=${process.env.LLM_MOCK === "true"})`));
