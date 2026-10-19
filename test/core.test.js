@@ -7,7 +7,7 @@ const fs = require("fs");
 
 const PORT = 3211;
 const BASE = `http://127.0.0.1:${PORT}`;
-const ENV = { ...process.env, PORT: String(PORT), LLM_MOCK: "true" };
+const ENV = { ...process.env, PORT: String(PORT), LLM_MOCK: "true", ALLOW_MEMORY_STORE: "true" };
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra = "") {
