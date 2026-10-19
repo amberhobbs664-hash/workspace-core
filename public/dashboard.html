@@ -4,132 +4,233 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workspace Core</title>
+<!-- dashboard v0.2 : live auto-refresh + activity feed -->
 <style>
-body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#f6f7f9}
-.card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 3px #0001}
-input,select,textarea,button{font-size:15px;padding:8px;margin:4px 0;border-radius:6px;border:1px solid #ccc}
-button{background:#111;color:#fff;border:none;cursor:pointer;padding:8px 14px}
-button.ghost{background:#eee;color:#111}
-.tabs button{margin-right:6px}
-.hidden{display:none}
+:root{--bg:#f4f6f8;--card:#fff;--ink:#17202a;--mut:#68727d;--line:#e8ebee;--acc:#0b6efd;--ok:#1a9e54;--warn:#e8a13d}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;margin:0 auto;padding:12px;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:10px;margin:4px 0 8px}
+header h2{margin:0;font-size:20px}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--mut);background:#fff;border:1px solid var(--line);border-radius:20px;padding:4px 10px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite}
+@keyframes pulse{0%{opacity:1}50%{opacity:.35}100%{opacity:1}}
+.card{background:var(--card);border-radius:12px;padding:14px;margin:10px 0;box-shadow:0 1px 3px #0001}
+input,select,textarea,button{font-size:14px;padding:8px 10px;margin:4px 4px 4px 0;border-radius:8px;border:1px solid #ccd2d8}
+input,textarea,select{background:#fff}
+button{background:#111;color:#fff;border:none;cursor:pointer}
+button.ghost{background:#eef0f2;color:#111}
+button.sm{padding:5px 10px;font-size:13px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tabs button.on{background:var(--acc)}
+.hidden{display:none!important}
 table{width:100%;border-collapse:collapse;font-size:14px}
-td,th{border-bottom:1px solid #eee;padding:6px;text-align:left}
-.key{background:#ffe;border:1px dashed #a80;padding:8px;border-radius:6px;word-break:break-all}
-.badge{padding:2px 8px;border-radius:10px;font-size:12px;background:#eee}
-.badge.done{background:#cfc}.badge.in_progress{background:#fec}.badge.open{background:#eee}
+td,th{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left}
+.badge{padding:2px 10px;border-radius:12px;font-size:12px;background:#eef0f2;white-space:nowrap}
+.badge.done{background:#d7f0e0;color:#14663a}.badge.in_progress{background:#fdeecb;color:#8a5a00}.badge.assigned{background:#dde9fd;color:#0b4fc0}
+.key{background:#fff8e1;border:1px dashed #c89600;padding:10px;border-radius:8px;word-break:break-all;font-size:13px;margin:8px 0}
+.bar{height:8px;background:#eef0f2;border-radius:6px;overflow:hidden;min-width:80px}
+.bar>i{display:block;height:100%;background:var(--acc);border-radius:6px}
+.bar>i.hot{background:#d33}
+.sub{border-top:1px solid var(--line);padding:8px 0;font-size:14px}
+.sub small{color:var(--mut)}
+.feed-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.feed-item .ic{font-size:16px}
+.feed-item time{color:var(--mut);font-size:12px;white-space:nowrap;margin-left:auto}
+.rowhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rowhead .sp{flex:1}
+h3{margin:10px 0 6px;font-size:16px}
+.mut{color:var(--mut);font-size:13px}
+.prog{font-size:12px;color:var(--mut)}
+@media(max-width:600px){td,th{padding:6px 4px;font-size:13px}}
 </style>
 </head>
 <body>
-<h2>🛰️ Workspace Core</h2>
+<header>
+  <h2>🛰️ Workspace</h2>
+  <span class="live"><span class="dot"></span><span id="liveTxt">live</span></span>
+  <span style="flex:1"></span>
+  <span id="me" class="mut"></span>
+  <button class="ghost sm hidden" id="logoutBtn" onclick="logout()">Logout</button>
+</header>
 
 <div id="login" class="card">
   <h3>Login / Register</h3>
-  <input id="l_name" placeholder="Name (register only)"><br>
-  <input id="l_email" placeholder="Email"><br>
-  <input id="l_pass" type="password" placeholder="Password"><br>
+  <input id="l_name" placeholder="Name (register only)" autocomplete="name"><br>
+  <input id="l_email" placeholder="Email" autocomplete="email"><br>
+  <input id="l_pass" type="password" placeholder="Password" autocomplete="current-password"><br>
   <button onclick="doAuth('login')">Login</button>
   <button class="ghost" onclick="doAuth('register')">Register</button>
-  <p id="l_err" style="color:red"></p>
+  <p id="l_err" style="color:#c00"></p>
+  <p class="mut">First registered user becomes the workspace owner.</p>
 </div>
 
 <div id="app" class="hidden">
   <div class="card">
-    <span id="me"></span>
-    <button class="ghost" style="float:right" onclick="logout()">Logout</button>
     <div class="tabs">
-      <button onclick="tab('agents')">Agents</button>
-      <button onclick="tab('tasks')">Tasks</button>
-      <button onclick="tab('usage')">Token usage</button>
+      <button id="tabBtn_tasks" class="on" onclick="tab('tasks')">📋 Tasks</button>
+      <button id="tabBtn_activity" onclick="tab('activity')">⚡ Activity</button>
+      <button id="tabBtn_agents" onclick="tab('agents')">🤖 Agents</button>
+      <button id="tabBtn_usage" onclick="tab('usage')">🔋 Tokens</button>
+      <span style="flex:1"></span>
+      <label class="mut" style="font-size:13px"><input type="checkbox" id="autoRef" checked style="margin:0"> auto-refresh</label>
     </div>
   </div>
 
-  <div id="t_agents" class="card">
-    <h3>Add agent</h3>
-    <input id="a_name" placeholder="Agent name (e.g. researcher-1)">
-    <input id="a_caps" placeholder="Capabilities (comma separated)">
-    <input id="a_limit" type="number" placeholder="Monthly token limit (optional)">
-    <button onclick="addAgent()">Create + issue key</button>
-    <div id="a_newkey"></div>
-    <h3>Agents</h3>
-    <table><thead><tr><th>Name</th><th>Caps</th><th>Key</th><th>Limit</th><th>Status</th><th></th></tr></thead>
-    <tbody id="a_list"></tbody></table>
-  </div>
-
-  <div id="t_tasks" class="card hidden">
-    <h3>New task</h3>
-    <input id="t_title" placeholder="Task title" style="width:90%"><br>
-    <textarea id="t_desc" placeholder="Description" rows="2" style="width:90%"></textarea><br>
-    <textarea id="t_subs" placeholder="Subtasks, one per line" rows="3" style="width:90%"></textarea><br>
-    <button onclick="addTask()">Create task</button>
-    <h3>Tasks</h3>
+  <div id="t_tasks">
+    <div class="card">
+      <h3>New task</h3>
+      <input id="t_title" placeholder="Task title" style="width:100%"><br>
+      <textarea id="t_desc" placeholder="Description (shown to the agent)" rows="2" style="width:100%"></textarea><br>
+      <textarea id="t_subs" placeholder="Subtasks — one per line" rows="3" style="width:100%"></textarea><br>
+      <button onclick="addTask()">Create task</button>
+    </div>
     <div id="t_list"></div>
   </div>
 
-  <div id="t_usage" class="card hidden">
-    <h3>Token usage (this month)</h3>
-    <table><thead><tr><th>Agent</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Total</th><th>Limit</th></tr></thead>
-    <tbody id="u_list"></tbody></table>
+  <div id="t_activity" class="hidden">
+    <div class="card"><h3>Live activity</h3><div id="feed"><p class="mut">Waiting for agent activity…</p></div></div>
+  </div>
+
+  <div id="t_agents" class="hidden">
+    <div class="card">
+      <h3>Add agent</h3>
+      <input id="a_name" placeholder="Agent name (e.g. researcher-1)">
+      <input id="a_caps" placeholder="Capabilities, comma separated">
+      <input id="a_limit" type="number" placeholder="Monthly token limit (optional)">
+      <button onclick="addAgent()">Create + issue key</button>
+      <div id="a_newkey"></div>
+    </div>
+    <div class="card"><h3>Agents</h3>
+      <table><thead><tr><th>Agent</th><th>Workload</th><th>Key</th><th>Limit</th><th></th></tr></thead>
+      <tbody id="a_list"></tbody></table>
+    </div>
+  </div>
+
+  <div id="t_usage" class="hidden">
+    <div class="card"><h3>Token usage — this month</h3>
+      <table><thead><tr><th>Agent</th><th>Calls</th><th>Total tokens</th><th>vs limit</th></tr></thead>
+      <tbody id="u_list"></tbody></table>
+    </div>
   </div>
 </div>
 
 <script>
 let TOK = localStorage.getItem("wc_tok") || "";
-let AGENTS = [];
+let AGENTS = [], TASKS = [], USAGE = [];
+let lastSeen = 0;
 const H = () => ({"Content-Type":"application/json","Authorization":"Bearer "+TOK});
-async function api(m, p, b){ const r = await fetch(p,{method:m,headers:H(),body:b?JSON.stringify(b):undefined}); return r.json(); }
+async function api(m,p,b){ try{ const r=await fetch(p,{method:m,headers:H(),body:b?JSON.stringify(b):undefined}); return await r.json(); }catch(e){ return {ok:false,error:"network"}; } }
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function ago(ts){ const s=(Date.now()-new Date(ts).getTime())/1000; if(s<60) return Math.floor(s)+"s ago"; if(s<3600) return Math.floor(s/60)+"m ago"; if(s<86400) return Math.floor(s/3600)+"h ago"; return Math.floor(s/86400)+"d ago"; }
 
 async function doAuth(kind){
-  const body = {email:l_email.value, password:l_pass.value};
-  if(kind==="register") body.name = l_name.value;
-  const r = await api("POST","/api/auth/"+kind, body);
-  if(!r.ok){ l_err.textContent = r.error; return; }
-  TOK = r.token; localStorage.setItem("wc_tok", TOK);
-  loginUI(r.user);
+  const body={email:l_email.value,password:l_pass.value};
+  if(kind==="register") body.name=l_name.value;
+  const r=await api("POST","/api/auth/"+kind,body);
+  if(!r.ok){ l_err.textContent=r.error; return; }
+  TOK=r.token; localStorage.setItem("wc_tok",TOK); loginUI(r.user);
 }
 function logout(){ TOK=""; localStorage.removeItem("wc_tok"); location.reload(); }
 async function loginUI(user){
-  user = user || (await api("GET","/api/me")).user;
-  if(!user || !user.id){ return; }
-  login.classList.add("hidden"); app.classList.remove("hidden");
-  me.innerHTML = `<b>${user.name}</b> (${user.role})`;
-  refresh();
+  user=user||(await api("GET","/api/me")).user;
+  if(!user||!user.id) return;
+  login.classList.add("hidden"); app.classList.remove("hidden"); logoutBtn.classList.remove("hidden");
+  me.textContent=user.name+" ("+user.role+")";
+  startPolling(); refresh(true);
 }
-function tab(t){ for(const x of ["agents","tasks","usage"]) document.getElementById("t_"+x).classList.toggle("hidden", x!==t); }
+function tab(t){
+  for(const x of ["tasks","activity","agents","usage"]){
+    document.getElementById("t_"+x).classList.toggle("hidden",x!==t);
+    document.getElementById("tabBtn_"+x).classList.toggle("on",x===t);
+  }
+}
 
 async function addAgent(){
-  const r = await api("POST","/api/agents",{name:a_name.value, capabilities:a_caps.value.split(",").map(s=>s.trim()).filter(Boolean), token_limit:a_limit.value?+a_limit.value:null});
+  const r=await api("POST","/api/agents",{name:a_name.value,capabilities:a_caps.value.split(",").map(s=>s.trim()).filter(Boolean),token_limit:a_limit.value?+a_limit.value:null});
   if(!r.ok){ alert(r.error); return; }
-  a_newkey.innerHTML = `<p>API key (shown once — copy now):</p><div class="key">${r.api_key}</div>`;
-  refresh();
+  a_newkey.innerHTML=`<p><b>API key — shown once, copy now:</b></p><div class="key">${esc(r.api_key)}</div>`;
+  a_name.value=a_caps.value=a_limit.value="";
+  refresh(true);
 }
-async function delAgent(id){ if(confirm("Revoke this agent?")){ await api("DELETE","/api/agents/"+id); refresh(); } }
-async function regen(id){ const r = await api("POST",`/api/agents/${id}/regenerate`); if(r.ok) a_newkey.innerHTML = `<div class="key">${r.api_key}</div>`; refresh(); }
+async function delAgent(id){ if(confirm("Revoke this agent's key?")){ await api("DELETE","/api/agents/"+id); refresh(true); } }
+async function regen(id){ const r=await api("POST",`/api/agents/${id}/regenerate`); if(r.ok) a_newkey.innerHTML=`<p><b>New key — shown once:</b></p><div class="key">${esc(r.api_key)}</div>`; refresh(true); }
 
 async function addTask(){
-  const subs = t_subs.value.split("\n").map(s=>s.trim()).filter(Boolean);
-  const r = await api("POST","/api/tasks",{title:t_title.value, description:t_desc.value, subtasks:subs});
+  const subs=t_subs.value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const r=await api("POST","/api/tasks",{title:t_title.value,description:t_desc.value,subtasks:subs});
   if(!r.ok){ alert(r.error); return; }
-  t_title.value=t_desc.value=t_subs.value=""; refresh();
+  t_title.value=t_desc.value=t_subs.value="";
+  refresh(true); tab("tasks");
 }
-async function assign(tid, sid, sel){
-  const r = await api("POST",`/api/tasks/${tid}/assign`,{subtask_id:sid, agent_id:sel.value});
-  if(!r.ok) alert(r.error); refresh();
+async function assign(tid,sid,sel){ if(!sel.value) return; const r=await api("POST",`/api/tasks/${tid}/assign`,{subtask_id:sid,agent_id:sel.value}); if(!r.ok) alert(r.error); refresh(true); }
+
+function agentName(id){ const a=AGENTS.find(x=>x.id===id); return a?a.name:"?"; }
+function workload(id){ let n=0; for(const t of TASKS) for(const s of t.subtasks) if(s.agent_id===id&&s.status!=="done") n++; return n; }
+
+function renderAgents(){
+  a_list.innerHTML=AGENTS.map(a=>{const w=workload(a.id);return `<tr>
+    <td><b>${esc(a.name)}</b><br><span class="mut">${esc((a.capabilities||[]).join(", "))}</span></td>
+    <td>${w?`<span class="badge assigned">${w} open</span>`:`<span class="mut">idle</span>`}</td>
+    <td class="mut">${esc(a.key_prefix)}</td>
+    <td>${a.token_limit??"—"}</td>
+    <td style="white-space:nowrap"><button class="ghost sm" onclick="regen('${a.id}')">rekey</button> <button class="ghost sm" onclick="delAgent('${a.id}')">revoke</button></td>
+  </tr>`;}).join("")||`<tr><td colspan="5" class="mut">No agents yet — create one above.</td></tr>`;
 }
 
-async function refresh(){
-  const ag = await api("GET","/api/agents"); AGENTS = ag.agents||[];
-  a_list.innerHTML = AGENTS.map(a=>`<tr><td>${a.name}</td><td>${(a.capabilities||[]).join(", ")}</td><td>${a.key_prefix}</td><td>${a.token_limit??"—"}</td><td>${a.status}</td><td><button class="ghost" onclick="regen('${a.id}')">rekey</button> <button class="ghost" onclick="delAgent('${a.id}')">revoke</button></td></tr>`).join("");
-  const ts = await api("GET","/api/tasks");
-  t_list.innerHTML = (ts.tasks||[]).map(t=>`
-    <div class="card"><b>${t.title}</b> <span class="badge ${t.status}">${t.status}</span><br>
-    <small>${t.description||""}</small>
-    ${t.subtasks.map(s=>`<div>• ${s.title} <span class="badge ${s.status}">${s.status}</span>
-      ${s.agent_id?`<small>→ ${(AGENTS.find(a=>a.id===s.agent_id)||{}).name||"?"}</small>`:""}
-      ${s.status==="open"?`<select onchange="assign('${t.id}','${s.id}',this)"><option value="">assign…</option>${AGENTS.filter(a=>a.status==="active").map(a=>`<option value="${a.id}">${a.name}</option>`).join("")}</select>`:""}
-      ${s.result?`<br><small>result: ${String(s.result).slice(0,200)}</small>`:""}
-    </div>`).join("")}</div>`).join("") || "<p>No tasks yet.</p>";
-  const u = await api("GET","/api/usage");
-  u_list.innerHTML = (u.usage||[]).map(x=>`<tr><td>${x.agent_name}</td><td>${x.calls}</td><td>${x.prompt_tokens}</td><td>${x.completion_tokens}</td><td><b>${x.total_tokens}</b></td><td>${x.token_limit??"—"}</td></tr>`).join("") || "<tr><td colspan=6>No usage yet.</td></tr>";
+function renderTasks(){
+  t_list.innerHTML=TASKS.slice().reverse().map(t=>{
+    const done=t.subtasks.filter(s=>s.status==="done").length, n=t.subtasks.length;
+    return `<div class="card"><div class="rowhead"><b>${esc(t.title)}</b>
+      <span class="badge ${t.status}">${t.status.replace("_"," ")}</span>
+      <span class="prog">${done}/${n} done</span><span class="sp"></span>
+      <span class="mut" style="font-size:12px">${ago(t.created_at)}</span></div>
+      ${t.description?`<div class="mut">${esc(t.description)}</div>`:""}
+      ${t.subtasks.map(s=>`<div class="sub">
+        <span class="badge ${s.status}">${s.status.replace("_"," ")}</span> ${esc(s.title)}
+        ${s.agent_id?`<small> → ${esc(agentName(s.agent_id))}</small>`:""}
+        ${s.status==="open"?` <select onchange="assign('${t.id}','${s.id}',this)"><option value="">assign…</option>${AGENTS.filter(a=>a.status==="active").map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>`:""}
+        ${s.result?`<br><small>💬 ${esc(String(s.result).slice(0,300))}</small>`:""}
+        <div class="mut" style="font-size:12px">${ago(s.updated_at)}</div>
+      </div>`).join("")}
+    </div>`;}).join("")||`<div class="card mut">No tasks yet — create one above.</div>`;
+}
+
+function renderFeed(){
+  const ev=[];
+  for(const t of TASKS) for(const s of t.subtasks){
+    if(s.status!=="open") ev.push({ts:s.updated_at, html:
+      s.status==="done"
+        ? `<span class="ic">✅</span><span><b>${esc(agentName(s.agent_id))}</b> completed <b>${esc(s.title)}</b><br><span class="mut">${esc(t.title)}</span></span>`
+        : `<span class="ic">📌</span><span><b>${esc(s.title)}</b> assigned to <b>${esc(agentName(s.agent_id))}</b><br><span class="mut">${esc(t.title)}</span></span>`});
+  }
+  ev.sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  feed.innerHTML=ev.slice(0,30).map(e=>`<div class="feed-item">${e.html}<time>${ago(e.ts)}</time></div>`).join("")||`<p class="mut">Waiting for agent activity…</p>`;
+}
+
+function renderUsage(){
+  u_list.innerHTML=USAGE.map(x=>{
+    const pct=x.token_limit?Math.min(100,Math.round(x.total_tokens/x.token_limit*100)):0;
+    return `<tr><td><b>${esc(x.agent_name)}</b></td><td>${x.calls}</td>
+      <td><b>${x.total_tokens.toLocaleString()}</b> <span class="mut">(${x.prompt_tokens.toLocaleString()}↑ ${x.completion_tokens.toLocaleString()}↓)</span></td>
+      <td>${x.token_limit?`<div class="bar"><i class="${pct>85?"hot":""}" style="width:${pct}%"></i></div><span class="mut">${pct}% of ${x.token_limit.toLocaleString()}</span>`:"—"}</td></tr>`;
+  }).join("")||`<tr><td colspan="4" class="mut">No usage yet this month.</td></tr>`;
+}
+
+let pollTimer=null;
+async function refresh(force){
+  const [ag,ts,u]=await Promise.all([api("GET","/api/agents"),api("GET","/api/tasks"),api("GET","/api/usage")]);
+  let changed=false;
+  if(ag.ok){ AGENTS=ag.agents||[]; changed=true; }
+  if(ts.ok){
+    const sig=JSON.stringify(ts.tasks);
+    if(force||sig!==lastSeen){ TASKS=ts.tasks||[]; lastSeen=sig; changed=true; }
+  }
+  if(u.ok){ USAGE=u.usage||[]; changed=true; }
+  if(changed){ renderAgents(); renderTasks(); renderFeed(); renderUsage(); liveTxt.textContent="live · "+new Date().toLocaleTimeString(); }
+}
+function startPolling(){
+  if(pollTimer) return;
+  pollTimer=setInterval(()=>{ if(!document.hidden && document.getElementById("autoRef").checked) refresh(false); },4000);
 }
 if(TOK) loginUI();
 </script>
