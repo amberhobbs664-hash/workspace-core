@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace Core</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#f6f7f9}
+.card{background:#fff;border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 3px #0001}
+input,select,textarea,button{font-size:15px;padding:8px;margin:4px 0;border-radius:6px;border:1px solid #ccc}
+button{background:#111;color:#fff;border:none;cursor:pointer;padding:8px 14px}
+button.ghost{background:#eee;color:#111}
+.tabs button{margin-right:6px}
+.hidden{display:none}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{border-bottom:1px solid #eee;padding:6px;text-align:left}
+.key{background:#ffe;border:1px dashed #a80;padding:8px;border-radius:6px;word-break:break-all}
+.badge{padding:2px 8px;border-radius:10px;font-size:12px;background:#eee}
+.badge.done{background:#cfc}.badge.in_progress{background:#fec}.badge.open{background:#eee}
+</style>
+</head>
+<body>
+<h2>🛰️ Workspace Core</h2>
+
+<div id="login" class="card">
+  <h3>Login / Register</h3>
+  <input id="l_name" placeholder="Name (register only)"><br>
+  <input id="l_email" placeholder="Email"><br>
+  <input id="l_pass" type="password" placeholder="Password"><br>
+  <button onclick="doAuth('login')">Login</button>
+  <button class="ghost" onclick="doAuth('register')">Register</button>
+  <p id="l_err" style="color:red"></p>
+</div>
+
+<div id="app" class="hidden">
+  <div class="card">
+    <span id="me"></span>
+    <button class="ghost" style="float:right" onclick="logout()">Logout</button>
+    <div class="tabs">
+      <button onclick="tab('agents')">Agents</button>
+      <button onclick="tab('tasks')">Tasks</button>
+      <button onclick="tab('usage')">Token usage</button>
+    </div>
+  </div>
+
+  <div id="t_agents" class="card">
+    <h3>Add agent</h3>
+    <input id="a_name" placeholder="Agent name (e.g. researcher-1)">
+    <input id="a_caps" placeholder="Capabilities (comma separated)">
+    <input id="a_limit" type="number" placeholder="Monthly token limit (optional)">
+    <button onclick="addAgent()">Create + issue key</button>
+    <div id="a_newkey"></div>
+    <h3>Agents</h3>
+    <table><thead><tr><th>Name</th><th>Caps</th><th>Key</th><th>Limit</th><th>Status</th><th></th></tr></thead>
+    <tbody id="a_list"></tbody></table>
+  </div>
+
+  <div id="t_tasks" class="card hidden">
+    <h3>New task</h3>
+    <input id="t_title" placeholder="Task title" style="width:90%"><br>
+    <textarea id="t_desc" placeholder="Description" rows="2" style="width:90%"></textarea><br>
+    <textarea id="t_subs" placeholder="Subtasks, one per line" rows="3" style="width:90%"></textarea><br>
+    <button onclick="addTask()">Create task</button>
+    <h3>Tasks</h3>
+    <div id="t_list"></div>
+  </div>
+
+  <div id="t_usage" class="card hidden">
+    <h3>Token usage (this month)</h3>
+    <table><thead><tr><th>Agent</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Total</th><th>Limit</th></tr></thead>
+    <tbody id="u_list"></tbody></table>
+  </div>
+</div>
+
+<script>
+let TOK = localStorage.getItem("wc_tok") || "";
+let AGENTS = [];
+const H = () => ({"Content-Type":"application/json","Authorization":"Bearer "+TOK});
+async function api(m, p, b){ const r = await fetch(p,{method:m,headers:H(),body:b?JSON.stringify(b):undefined}); return r.json(); }
+
+async function doAuth(kind){
+  const body = {email:l_email.value, password:l_pass.value};
+  if(kind==="register") body.name = l_name.value;
+  const r = await api("POST","/api/auth/"+kind, body);
+  if(!r.ok){ l_err.textContent = r.error; return; }
+  TOK = r.token; localStorage.setItem("wc_tok", TOK);
+  loginUI(r.user);
+}
+function logout(){ TOK=""; localStorage.removeItem("wc_tok"); location.reload(); }
+async function loginUI(user){
+  user = user || (await api("GET","/api/me")).user;
+  if(!user || !user.id){ return; }
+  login.classList.add("hidden"); app.classList.remove("hidden");
+  me.innerHTML = `<b>${user.name}</b> (${user.role})`;
+  refresh();
+}
+function tab(t){ for(const x of ["agents","tasks","usage"]) document.getElementById("t_"+x).classList.toggle("hidden", x!==t); }
+
+async function addAgent(){
+  const r = await api("POST","/api/agents",{name:a_name.value, capabilities:a_caps.value.split(",").map(s=>s.trim()).filter(Boolean), token_limit:a_limit.value?+a_limit.value:null});
+  if(!r.ok){ alert(r.error); return; }
+  a_newkey.innerHTML = `<p>API key (shown once — copy now):</p><div class="key">${r.api_key}</div>`;
+  refresh();
+}
+async function delAgent(id){ if(confirm("Revoke this agent?")){ await api("DELETE","/api/agents/"+id); refresh(); } }
+async function regen(id){ const r = await api("POST",`/api/agents/${id}/regenerate`); if(r.ok) a_newkey.innerHTML = `<div class="key">${r.api_key}</div>`; refresh(); }
+
+async function addTask(){
+  const subs = t_subs.value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const r = await api("POST","/api/tasks",{title:t_title.value, description:t_desc.value, subtasks:subs});
+  if(!r.ok){ alert(r.error); return; }
+  t_title.value=t_desc.value=t_subs.value=""; refresh();
+}
+async function assign(tid, sid, sel){
+  const r = await api("POST",`/api/tasks/${tid}/assign`,{subtask_id:sid, agent_id:sel.value});
+  if(!r.ok) alert(r.error); refresh();
+}
+
+async function refresh(){
+  const ag = await api("GET","/api/agents"); AGENTS = ag.agents||[];
+  a_list.innerHTML = AGENTS.map(a=>`<tr><td>${a.name}</td><td>${(a.capabilities||[]).join(", ")}</td><td>${a.key_prefix}</td><td>${a.token_limit??"—"}</td><td>${a.status}</td><td><button class="ghost" onclick="regen('${a.id}')">rekey</button> <button class="ghost" onclick="delAgent('${a.id}')">revoke</button></td></tr>`).join("");
+  const ts = await api("GET","/api/tasks");
+  t_list.innerHTML = (ts.tasks||[]).map(t=>`
+    <div class="card"><b>${t.title}</b> <span class="badge ${t.status}">${t.status}</span><br>
+    <small>${t.description||""}</small>
+    ${t.subtasks.map(s=>`<div>• ${s.title} <span class="badge ${s.status}">${s.status}</span>
+      ${s.agent_id?`<small>→ ${(AGENTS.find(a=>a.id===s.agent_id)||{}).name||"?"}</small>`:""}
+      ${s.status==="open"?`<select onchange="assign('${t.id}','${s.id}',this)"><option value="">assign…</option>${AGENTS.filter(a=>a.status==="active").map(a=>`<option value="${a.id}">${a.name}</option>`).join("")}</select>`:""}
+      ${s.result?`<br><small>result: ${String(s.result).slice(0,200)}</small>`:""}
+    </div>`).join("")}</div>`).join("") || "<p>No tasks yet.</p>";
+  const u = await api("GET","/api/usage");
+  u_list.innerHTML = (u.usage||[]).map(x=>`<tr><td>${x.agent_name}</td><td>${x.calls}</td><td>${x.prompt_tokens}</td><td>${x.completion_tokens}</td><td><b>${x.total_tokens}</b></td><td>${x.token_limit??"—"}</td></tr>`).join("") || "<tr><td colspan=6>No usage yet.</td></tr>";
+}
+if(TOK) loginUI();
+</script>
+</body>
+</html>
