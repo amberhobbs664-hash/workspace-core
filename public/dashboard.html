@@ -38,6 +38,14 @@ td,th{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left}
 .feed-item time{color:var(--mut);font-size:12px;white-space:nowrap;margin-left:auto}
 .rowhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .rowhead .sp{flex:1}
+.chatbox{display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;padding:6px 2px}
+.bub{max-width:82%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;word-break:break-word}
+.bub.me{align-self:flex-end;background:var(--acc);color:#fff;border-bottom-right-radius:4px}
+.bub.them{align-self:flex-start;background:#eef0f2;color:var(--ink);border-bottom-left-radius:4px}
+.bub .who{font-size:11px;opacity:.7;margin-bottom:2px}
+.bub.pending{opacity:.65;font-style:italic}
+.chatbar{display:flex;gap:6px;margin-top:8px}
+.chatbar input{flex:1}
 h3{margin:10px 0 6px;font-size:16px}
 .mut{color:var(--mut);font-size:13px}
 .prog{font-size:12px;color:var(--mut)}
@@ -68,6 +76,7 @@ h3{margin:10px 0 6px;font-size:16px}
   <div class="card">
     <div class="tabs">
       <button id="tabBtn_tasks" class="on" onclick="tab('tasks')">📋 Tasks</button>
+      <button id="tabBtn_chat" onclick="tab('chat')">💬 Chat</button>
       <button id="tabBtn_activity" onclick="tab('activity')">⚡ Activity</button>
       <button id="tabBtn_agents" onclick="tab('agents')">🤖 Agents</button>
       <button id="tabBtn_usage" onclick="tab('usage')">🔋 Tokens</button>
@@ -85,6 +94,18 @@ h3{margin:10px 0 6px;font-size:16px}
       <button onclick="addTask()">Create task</button>
     </div>
     <div id="t_list"></div>
+  </div>
+
+  <div id="t_chat" class="hidden">
+    <div class="card">
+      <h3>Chat with agent</h3>
+      <select id="c_agent" onchange="loadChat(true)"><option value="">select agent…</option></select>
+      <div id="c_msgs" class="chatbox"><p class="mut">Pick an agent to start chatting.</p></div>
+      <div class="chatbar">
+        <input id="c_input" placeholder="Message the agent…" onkeydown="if(event.key==='Enter')sendChat()">
+        <button onclick="sendChat()">Send</button>
+      </div>
+    </div>
   </div>
 
   <div id="t_activity" class="hidden">
@@ -139,10 +160,43 @@ async function loginUI(user){
   startPolling(); refresh(true);
 }
 function tab(t){
-  for(const x of ["tasks","activity","agents","usage"]){
+  for(const x of ["tasks","chat","activity","agents","usage"]){
     document.getElementById("t_"+x).classList.toggle("hidden",x!==t);
     document.getElementById("tabBtn_"+x).classList.toggle("on",x===t);
   }
+  if(t==="chat") loadChat(true);
+}
+
+let CHAT_AGENT=null, CHAT_SIG="";
+async function loadChat(force){
+  const id=c_agent.value;
+  if(!id){ c_msgs.innerHTML=`<p class="mut">Pick an agent to start chatting.</p>`; CHAT_AGENT=null; return; }
+  const r=await api("GET","/api/chat/"+id);
+  if(!r.ok){ c_msgs.innerHTML=`<p class="mut">${esc(r.error)}</p>`; return; }
+  CHAT_AGENT=id;
+  const sig=JSON.stringify(r.task.subtasks);
+  if(!force&&sig===CHAT_SIG) return;
+  CHAT_SIG=sig;
+  const aname=(AGENTS.find(a=>a.id===id)||{}).name||"agent";
+  c_msgs.innerHTML=r.task.subtasks.map(s=>`
+    <div class="bub me"><div class="who">you · ${ago(s.updated_at)}</div>${esc(s.title)}</div>
+    ${s.status==="done"&&s.result?`<div class="bub them"><div class="who">${esc(aname)}</div>${esc(s.result)}</div>`
+      :`<div class="bub them pending"><div class="who">${esc(aname)} is typing…</div></div>`}
+  `).join("")||`<p class="mut">No messages yet — say hi.</p>`;
+  c_msgs.scrollTop=c_msgs.scrollHeight;
+}
+async function sendChat(){
+  const id=c_agent.value, msg=c_input.value.trim();
+  if(!id||!msg) return;
+  c_input.value="";
+  const r=await api("POST","/api/chat",{agent_id:id,message:msg});
+  if(!r.ok){ alert(r.error); return; }
+  loadChat(true);
+}
+function syncChatAgentOptions(){
+  const cur=c_agent.value;
+  c_agent.innerHTML=`<option value="">select agent…</option>`+AGENTS.filter(a=>a.status==="active").map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
+  if(cur&&AGENTS.some(a=>a.id===cur)) c_agent.value=cur;
 }
 
 async function addAgent(){
@@ -226,7 +280,8 @@ async function refresh(force){
     if(force||sig!==lastSeen){ TASKS=ts.tasks||[]; lastSeen=sig; changed=true; }
   }
   if(u.ok){ USAGE=u.usage||[]; changed=true; }
-  if(changed){ renderAgents(); renderTasks(); renderFeed(); renderUsage(); liveTxt.textContent="live · "+new Date().toLocaleTimeString(); }
+  if(changed){ renderAgents(); renderTasks(); renderFeed(); renderUsage(); syncChatAgentOptions(); liveTxt.textContent="live · "+new Date().toLocaleTimeString(); }
+  if(!document.getElementById("t_chat").classList.contains("hidden")&&CHAT_AGENT) loadChat(false);
 }
 function startPolling(){
   if(pollTimer) return;
